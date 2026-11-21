@@ -25,7 +25,7 @@ import (
 
 	rabbitmqv1beta1 "github.com/rabbitmq/cluster-operator/v2/api/v1beta1"
 	"github.com/rabbitmq/cluster-operator/v2/internal/metadata"
-	"gopkg.in/ini.v1"
+	"github.com/rabbitmq/cluster-operator/v2/internal/rabbitmqconfig"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8sresource "k8s.io/apimachinery/pkg/api/resource"
@@ -863,7 +863,7 @@ func (builder *StatefulSetBuilder) startupProbe() (*corev1.Probe, error) {
 		scheme = corev1.URISchemeHTTPS
 	}
 
-	pathPrefix, err := managementPathPrefix(builder.Instance.Spec.Rabbitmq.AdditionalConfig)
+	pathPrefix, err := rabbitmqconfig.ManagementPathPrefix(builder.Instance.Spec.Rabbitmq.AdditionalConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -879,24 +879,6 @@ func (builder *StatefulSetBuilder) startupProbe() (*corev1.Probe, error) {
 		PeriodSeconds:       10,
 		FailureThreshold:    30,
 	}, nil
-}
-
-func managementPathPrefix(additionalConfig string) (string, error) {
-	iniFile, err := ini.Load([]byte(additionalConfig))
-	if err != nil {
-		return "", fmt.Errorf("failed to load spec.rabbitmq.additionalConfig: %w", err)
-	}
-
-	section := iniFile.Section("")
-	if !section.HasKey("management.path_prefix") {
-		return "", nil
-	}
-
-	prefix := strings.Trim(section.Key("management.path_prefix").String(), "/")
-	if prefix == "" {
-		return "", nil
-	}
-	return "/" + prefix, nil
 }
 
 func defaultUserCredentialUpdater(instance *rabbitmqv1beta1.RabbitmqCluster) corev1.Container {

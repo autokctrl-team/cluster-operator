@@ -12,7 +12,11 @@ package rabbitmqclient
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"strings"
 
+	rabbithole "github.com/michaelklishin/rabbit-hole/v3"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	rabbitmqv1beta1 "github.com/rabbitmq/cluster-operator/v2/api/v1beta1"
@@ -21,6 +25,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 var _ = Describe("RabbitMQ Client", func() {
 	var (
@@ -251,6 +261,69 @@ var _ = Describe("RabbitMQ Client", func() {
 				WithScheme(scheme).
 				WithObjects(rmq, secret, rabbitmqService).
 				Build()
+		})
+
+		DescribeTable("uses the management path prefix for Pod and Service API requests",
+			func(additionalConfig, expectedPrefix string, tlsOnly bool) {
+				rmq.Spec.Rabbitmq.AdditionalConfig = additionalConfig
+				rmq.Spec.TLS.DisableNonTLSListeners = tlsOnly
+				for _, target := range []string{"pod", "service"} {
+					var managementClient RabbitmqClient
+					var err error
+					if target == "pod" {
+						managementClient, err = factory.GetClientForPod(ctx, k8sClient, rmq, "test-cluster-server-0")
+					} else {
+						managementClient, err = factory.GetClientForService(ctx, k8sClient, rmq)
+					}
+					Expect(err).NotTo(HaveOccurred())
+
+					var paths []string
+					managementClient.(*rabbithole.Client).SetTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+						paths = append(paths, req.URL.Path)
+						if tlsOnly {
+							Expect(req.URL.Scheme).To(Equal("https"))
+						} else {
+							Expect(req.URL.Scheme).To(Equal("http"))
+						}
+						body := `{"status":"ok"}`
+						if strings.HasSuffix(req.URL.Path, "/deprecated-features/used") {
+							body = "[]"
+						}
+						return &http.Response{
+							StatusCode: http.StatusOK,
+							Header:     make(http.Header),
+							Body:       io.NopCloser(strings.NewReader(body)),
+							Request:    req,
+						}, nil
+					}))
+
+					_, err = managementClient.Overview()
+					Expect(err).NotTo(HaveOccurred())
+					_, err = managementClient.HealthCheckNodeIsQuorumCritical()
+					Expect(err).NotTo(HaveOccurred())
+					_, err = managementClient.ListDeprecatedFeaturesUsed()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(paths).To(Equal([]string{
+						expectedPrefix + "/api/overview",
+						expectedPrefix + "/api/health/checks/node-is-quorum-critical",
+						expectedPrefix + "/api/deprecated-features/used",
+					}))
+				}
+			},
+			Entry("no prefix", "", "", false),
+			Entry("configured prefix", "management.path_prefix = /foo", "/foo", false),
+			Entry("leading and trailing slashes", "management.path_prefix = //foo//", "/foo", false),
+			Entry("root prefix", "management.path_prefix = /", "", false),
+			Entry("prefix among other settings", "some_key = 1\nmanagement.path_prefix = /foo\nother_key = 2", "/foo", false),
+			Entry("TLS prefix", "management.path_prefix = /foo", "/foo", true),
+		)
+
+		It("returns configuration parsing errors for both clients", func() {
+			rmq.Spec.Rabbitmq.AdditionalConfig = " = invalid"
+			_, err := factory.GetClientForPod(ctx, k8sClient, rmq, "test-cluster-server-0")
+			Expect(err).To(MatchError(ContainSubstring("failed to load spec.rabbitmq.additionalConfig")))
+			_, err = factory.GetClientForService(ctx, k8sClient, rmq)
+			Expect(err).To(MatchError(ContainSubstring("failed to load spec.rabbitmq.additionalConfig")))
 		})
 
 		When("TLS is disabled", func() {

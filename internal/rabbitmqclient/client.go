@@ -18,6 +18,7 @@ import (
 	"net/http"
 
 	rabbitmqv1beta1 "github.com/rabbitmq/cluster-operator/v2/api/v1beta1"
+	"github.com/rabbitmq/cluster-operator/v2/internal/rabbitmqconfig"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -140,7 +141,11 @@ func getClientInfoForPod(ctx context.Context, k8sClient client.Reader, rmq *rabb
 		scheme = "http"
 	}
 
-	baseURL := fmt.Sprintf("%s://%s:%d", scheme, podFQDN, port)
+	pathPrefix, err := rabbitmqconfig.ManagementPathPrefix(rmq.Spec.Rabbitmq.AdditionalConfig)
+	if err != nil {
+		return nil, err
+	}
+	baseURL := fmt.Sprintf("%s://%s:%d%s", scheme, podFQDN, port, pathPrefix)
 
 	return &ClientInfo{
 		BaseURL:   baseURL,
@@ -187,7 +192,11 @@ func getClientInfoForService(ctx context.Context, k8sClient client.Reader, rmq *
 		scheme = "http"
 	}
 
-	baseURL := fmt.Sprintf("%s://%s:%d", scheme, serviceHost, svcPort)
+	pathPrefix, err := rabbitmqconfig.ManagementPathPrefix(rmq.Spec.Rabbitmq.AdditionalConfig)
+	if err != nil {
+		return nil, err
+	}
+	baseURL := fmt.Sprintf("%s://%s:%d%s", scheme, serviceHost, svcPort, pathPrefix)
 
 	return &ClientInfo{
 		BaseURL:   baseURL,
