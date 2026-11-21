@@ -279,7 +279,7 @@ jobs:
       contents: read
       packages: write # GHCR push using GITHUB_TOKEN
       id-token: write # keyless signing of attestations with GitHub OIDC
-    uses: docker/github-builder/.github/workflows/build.yml@cbc9d42f8c89a55623392aadd03600965b80e963 # v1.18.1
+    uses: docker/github-builder/.github/workflows/build.yml@a31d2311da4d55e21b978c1c52bab82ba97d51ee # v1.19.0
     with:
       output: image
       push: true
@@ -319,7 +319,7 @@ jobs:
         rabbitmq-image:
         - rabbitmq:3.13.7-management
         - rabbitmq:management
-        - pivotalrabbitmq/rabbitmq:main-otp27
+        - pivotalrabbitmq/rabbitmq:main-otp29
     steps:
     - name: Check out code into the Go module directory
       uses: actions/checkout@v7
